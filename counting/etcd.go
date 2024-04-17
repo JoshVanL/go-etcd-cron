@@ -21,6 +21,7 @@ type Counter interface {
 	Increment(context.Context, int) (int, bool, error)
 	Refresh(context.Context) (int, error)
 	Delete(context.Context) error
+	Value() int
 }
 
 // It keeps a cache of the value and updates async.
@@ -108,4 +109,8 @@ func (c *etcdcounter) refresh(ctx context.Context) (int, error) {
 		c.loaded = true
 	}
 	return c.value, err
+}
+
+func (c *etcdcounter) Value() int {
+	return c.value
 }

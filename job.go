@@ -8,6 +8,7 @@ package etcdcron
 import (
 	"time"
 
+	"github.com/dapr/kit/ptr"
 	"github.com/diagridio/go-etcd-cron/storage"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 )
@@ -25,7 +26,7 @@ type Job struct {
 	// Name of the job
 	Name string
 	// Cron-formatted rhythm (ie. 0,10,30 1-5 0 * * *)
-	Rhythm string
+	Rhythm *string
 	// Optional metadata that the client understands.
 	Metadata map[string]string
 	// Optional payload containg all the information for the trigger
@@ -33,7 +34,8 @@ type Job struct {
 	// Optional start time for the first trigger of the schedule
 	Repeats int32
 	// Optional start time for the first trigger of the schedule
-	StartTime time.Time
+	// TODO: @joshvanl
+	DueTime *time.Time
 	// Optional time when the job must expire
 	Expiration time.Time
 	// Status to allow job clean up
@@ -55,7 +57,7 @@ func (j *Job) toJobRecord() *storage.JobRecord {
 		Metadata:            j.Metadata,
 		Payload:             j.Payload,
 		Repeats:             j.Repeats,
-		StartTimestamp:      j.StartTime.Unix(),
+		DueTimestamp:        ptr.Of(j.DueTime.Unix()),
 		ExpirationTimestamp: j.Expiration.Unix(),
 	}
 }
@@ -70,13 +72,18 @@ func jobFromJobRecord(name string, r *storage.JobRecord) *Job {
 		status = JobStatusDeleted
 	}
 
+	var dueTime *time.Time
+	if r.DueTimestamp != nil {
+		dueTime = ptr.Of(time.Unix(*r.DueTimestamp, 0))
+	}
+
 	return &Job{
 		Name:       name,
 		Rhythm:     r.Rhythm,
 		Metadata:   r.Metadata,
 		Payload:    r.Payload,
 		Repeats:    r.Repeats,
-		StartTime:  time.Unix(r.StartTimestamp, 0),
+		DueTime:    dueTime,
 		Expiration: time.Unix(r.ExpirationTimestamp, 0),
 		Status:     status,
 	}

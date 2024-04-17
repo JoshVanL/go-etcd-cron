@@ -5,7 +5,9 @@ go 1.21
 toolchain go1.21.8
 
 require (
-	github.com/pkg/errors v0.9.1
+	github.com/dapr/kit v0.13.1-0.20240416202840-ccffb60016c7
+	github.com/go-logr/logr v1.3.0
+	github.com/go-logr/zapr v1.3.0
 	go.etcd.io/etcd/client/v3 v3.5.12
 )
 
@@ -13,6 +15,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b // indirect
 )
 
 require (

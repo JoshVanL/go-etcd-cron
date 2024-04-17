@@ -38,19 +38,22 @@ type etcdStore struct {
 	deleteCallback  func(context.Context, string) error
 }
 
-func NewEtcdJobStore(
-	client *etcdclient.Client,
-	organizer partitioning.Organizer,
-	partitioning partitioning.Partitioner,
-	putCallback func(context.Context, string, *JobRecord) error,
-	deleteCallback func(context.Context, string) error) JobStore {
+type Options struct {
+	Client         *etcdclient.Client
+	Organizer      partitioning.Organizer
+	Partitioning   partitioning.Partitioner
+	PutCallback    func(context.Context, string, *JobRecord) error
+	DeleteCallback func(context.Context, string) error
+}
+
+func NewEtcdJobStore(opts Options) JobStore {
 	return &etcdStore{
-		etcdClient:     client,
-		kvStore:        etcdclient.NewKV(client),
-		partitioning:   partitioning,
-		organizer:      organizer,
-		putCallback:    putCallback,
-		deleteCallback: deleteCallback,
+		etcdClient:     opts.Client,
+		kvStore:        etcdclient.NewKV(opts.Client),
+		partitioning:   opts.Partitioning,
+		organizer:      opts.Organizer,
+		putCallback:    opts.PutCallback,
+		deleteCallback: opts.DeleteCallback,
 	}
 }
 
@@ -112,7 +115,7 @@ func (s *etcdStore) notifyPut(ctx context.Context, kv *mvccpb.KeyValue, callback
 	if err != nil {
 		return fmt.Errorf("could not unmarshal job for key %s: %v", string(kv.Key), err)
 	}
-	if jobName == "" || record.GetRhythm() == "" {
+	if jobName == "" || (record.Rhythm == nil && record.DueTimestamp == nil) {
 		return fmt.Errorf("could not deserialize job for key %s", string(kv.Key))
 	}
 
@@ -138,10 +141,14 @@ func (s *etcdStore) sync(ctx context.Context, prefix string, syncer mirror.Synce
 					t := ev.Type
 					switch t {
 					case mvccpb.PUT:
-						s.notifyPut(ctx, ev.Kv, s.putCallback)
+						if err := s.notifyPut(ctx, ev.Kv, s.putCallback); err != nil {
+							log.Printf("Error notifying put: %v", err)
+						}
 					case mvccpb.DELETE:
 						_, name := filepath.Split(string(ev.Kv.Key))
-						s.notifyDelete(ctx, name, s.deleteCallback)
+						if err := s.notifyDelete(ctx, name, s.deleteCallback); err != nil {
+							log.Printf("Error notifying delete: %v", err)
+						}
 					default:
 						log.Printf("Unknown etcd event type: %v", t.String())
 					}

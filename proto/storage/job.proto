@@ -21,8 +21,8 @@ enum JobStatus {
 // Namespace is handled by prefixing the key in the database.
 message JobRecord {
   JobStatus status = 1;
-  string rhythm = 2;
-  int64 startTimestamp = 3;  // time that the schedule start
+  optional string rhythm = 2;
+  optional int64 dueTimestamp = 3;  // time that the schedule start
   int64 expirationTimestamp = 4;  // time that the job expires
   int32 repeats = 5;  // total number of times the job should trigger
   map<string, string> metadata = 6;
