@@ -59,6 +59,9 @@ type Interface interface {
 
 	// Delete deletes a job from the cron instance.
 	Delete(ctx context.Context, name string) error
+
+	// List lists all jobs under a given name prefix
+	List(ctx context.Context, prefix string) (*ListResponse, error)
 }
 
 // Options are the options for creating a new cron instance.

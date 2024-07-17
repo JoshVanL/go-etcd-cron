@@ -11,11 +11,22 @@ import (
 	"fmt"
 	"strings"
 
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/diagridio/go-etcd-cron/api"
 )
+
+// ListResponse is the response of listing jobs with a given prefix.
+type ListResponse struct {
+	// Jobs is the list of jobs in the given prefix.
+	Jobs []*api.Job
+
+	// More indicates there are more jobs in the given prefix which do not fit in
+	// the response size.
+	More bool
+}
 
 // Add adds a new cron job to the cron instance.
 func (c *cron) Add(ctx context.Context, name string, job *api.Job) error {
@@ -100,6 +111,39 @@ func (c *cron) Delete(ctx context.Context, name string) error {
 	}
 
 	return c.queue.Dequeue(c.key.JobKey(name))
+}
+
+func (c *cron) List(ctx context.Context, prefix string) (*ListResponse, error) {
+	select {
+	case <-c.readyCh:
+	case <-c.closeCh:
+		return nil, errors.New("cron is closed")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	resp, err := c.client.Get(ctx,
+		c.key.JobKey(prefix),
+		clientv3.WithPrefix(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	jobs := make([]*api.Job, 0, resp.Count)
+	for _, kv := range resp.Kvs {
+		var stored api.JobStored
+		if err := proto.Unmarshal(kv.Value, &stored); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal job from prefix %q: %w", prefix, err)
+		}
+
+		jobs = append(jobs, stored.GetJob())
+	}
+
+	return &ListResponse{
+		Jobs: jobs,
+		More: resp.More,
+	}, nil
 }
 
 // validateName validates the name of a job.

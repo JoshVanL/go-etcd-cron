@@ -511,3 +511,171 @@ func Test_validateName(t *testing.T) {
 		})
 	}
 }
+
+func Test_List(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns context error if cron not ready in time", func(t *testing.T) {
+		t.Parallel()
+
+		client := tests.EmbeddedETCDBareClient(t)
+		cron, err := New(Options{
+			Log:            logr.Discard(),
+			Client:         client,
+			Namespace:      "abc",
+			PartitionID:    0,
+			PartitionTotal: 1,
+			TriggerFn:      func(context.Context, *api.TriggerRequest) bool { return true },
+		})
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		resp, err := cron.List(ctx, "")
+		require.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	t.Run("returns closed error if cron is closed", func(t *testing.T) {
+		t.Parallel()
+
+		client := tests.EmbeddedETCDBareClient(t)
+		cron, err := New(Options{
+			Log:            logr.Discard(),
+			Client:         client,
+			Namespace:      "abc",
+			PartitionID:    0,
+			PartitionTotal: 1,
+			TriggerFn:      func(context.Context, *api.TriggerRequest) bool { return true },
+		})
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		require.NoError(t, cron.Run(ctx))
+
+		resp, err := cron.List(context.Background(), "")
+		require.Error(t, err)
+		assert.Nil(t, resp)
+	})
+
+	t.Run("List with no jobs should return empty", func(t *testing.T) {
+		t.Parallel()
+
+		client := tests.EmbeddedETCDBareClient(t)
+		cron, err := New(Options{
+			Log:            logr.Discard(),
+			Client:         client,
+			Namespace:      "abc",
+			PartitionID:    0,
+			PartitionTotal: 1,
+			TriggerFn:      func(context.Context, *api.TriggerRequest) bool { return true },
+		})
+		require.NoError(t, err)
+
+		errCh := make(chan error)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case err := <-errCh:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for cron to stop")
+			}
+		})
+		go func() {
+			errCh <- cron.Run(ctx)
+		}()
+
+		resp, err := cron.List(context.Background(), "")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs)
+	})
+
+	t.Run("List should return jobs which are in the namespace", func(t *testing.T) {
+		t.Parallel()
+
+		client := tests.EmbeddedETCDBareClient(t)
+		cron, err := New(Options{
+			Log:            logr.Discard(),
+			Client:         client,
+			Namespace:      "abc",
+			PartitionID:    0,
+			PartitionTotal: 1,
+			TriggerFn:      func(context.Context, *api.TriggerRequest) bool { return true },
+		})
+		require.NoError(t, err)
+
+		errCh := make(chan error)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case err := <-errCh:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for cron to stop")
+			}
+		})
+		go func() {
+			errCh <- cron.Run(ctx)
+		}()
+
+		resp, err := cron.List(context.Background(), "")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs)
+
+		now := time.Now()
+		require.NoError(t, cron.Add(context.Background(), "a123", &api.Job{
+			DueTime: ptr.Of(now.Add(time.Hour).Format(time.RFC3339)),
+		}))
+		require.NoError(t, cron.Add(context.Background(), "a345", &api.Job{
+			DueTime: ptr.Of(now.Add(time.Hour).Format(time.RFC3339)),
+		}))
+
+		resp, err = cron.List(context.Background(), "")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 2)
+		resp, err = cron.List(context.Background(), "a")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 2)
+		resp, err = cron.List(context.Background(), "a1")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 1)
+		resp, err = cron.List(context.Background(), "a123")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 1)
+		resp, err = cron.List(context.Background(), "a345")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 1)
+		resp, err = cron.List(context.Background(), "1")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs)
+		resp, err = cron.List(context.Background(), "b123")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs)
+
+		require.NoError(t, cron.Delete(context.Background(), "a123"))
+		resp, err = cron.List(context.Background(), "a")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 1)
+		resp, err = cron.List(context.Background(), "a123")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs, 0)
+		resp, err = cron.List(context.Background(), "a345")
+		require.NoError(t, err)
+		assert.Len(t, resp.Jobs, 1)
+
+		require.NoError(t, cron.Delete(context.Background(), "a345"))
+		resp, err = cron.List(context.Background(), "a")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs, 0)
+		resp, err = cron.List(context.Background(), "a123")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs, 0)
+		resp, err = cron.List(context.Background(), "a345")
+		require.NoError(t, err)
+		assert.Empty(t, resp.Jobs, 0)
+	})
+}
