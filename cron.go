@@ -105,9 +105,6 @@ type cron struct {
 	errCh   chan error
 	readyCh chan struct{}
 	wg      sync.WaitGroup
-	// queueLock prevents an informed schedule from overwriting a job as it is
-	// being triggered, i.e. prevent a PUT and mid-trigger race condition.
-	queueLock sync.RWMutex
 }
 
 // New creates a new cron instance.
@@ -190,10 +187,8 @@ func (c *cron) Run(ctx context.Context) error {
 
 	c.queue = queue.NewProcessor[string, *counter.Counter](
 		func(counter *counter.Counter) {
-			c.queueLock.RLock()
 			c.wg.Add(1)
 			go func() {
-				defer c.queueLock.RUnlock()
 				defer c.wg.Done()
 				c.handleTrigger(ctx, counter)
 			}()
@@ -287,19 +282,9 @@ func (c *cron) handleTrigger(ctx context.Context, counter *counter.Counter) {
 }
 
 // handleInformerEvent handles an etcd informed event.
-// TODO: @joshvanl: add a safe per key read lock to prevent locking all
-// triggers and an unrelated write. Must be able to handle a key being
-// de-queued and unlocked (deleted) whilst an Add schedule is waiting on the
-// lock, and visa versa. I don't think there is much if any we gain though as
-// we _always_ hack to lock somewhere..
 func (c *cron) handleInformerEvent(ctx context.Context, e *informer.Event) error {
-	c.queueLock.Lock()
-	defer c.queueLock.Unlock()
-
-	select {
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return ctx.Err()
-	default:
 	}
 
 	if e.IsPut {
@@ -329,10 +314,8 @@ func (c *cron) schedule(ctx context.Context, name string, job *api.JobStored) er
 		return err
 	}
 
-	select {
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return ctx.Err()
-	default:
 	}
 
 	return c.queue.Enqueue(counter)
