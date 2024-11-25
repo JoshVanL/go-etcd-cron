@@ -8,7 +8,6 @@ package engine
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,8 +85,6 @@ func Test_Run(t *testing.T) {
 		errCh := make(chan error)
 		go func() { errCh <- engine.Run(ctx) }()
 
-		// Allow time for the engine to start
-		time.Sleep(100 * time.Millisecond)
 		cancel()
 
 		// runner manager returns nil here
@@ -121,25 +118,15 @@ func Test_Run(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, engine)
 
-		ctx1, cancel1 := context.WithCancel(context.Background())
-		defer cancel1()
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
 
-		startedCh := make(chan struct{})
-		go func() {
-			close(startedCh)
-			_ = engine.Run(ctx1)
-		}()
-		<-startedCh // ensure engine starts
-
-		ctx2, cancel2 := context.WithCancel(context.Background())
-		defer cancel2()
-
-		err = engine.Run(ctx2)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "engine is already running")
-
-		// Cancel the first Run to allow cleanup
-		cancel1()
+		errCh := make(chan error)
+		go func() { errCh <- engine.Run(ctx) }()
+		go func() { errCh <- engine.Run(ctx) }()
+		require.Error(t, <-errCh)
+		cancel()
+		require.NoError(t, <-errCh)
 	})
 }
 

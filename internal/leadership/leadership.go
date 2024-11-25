@@ -88,16 +88,8 @@ func (l *Leadership) Run(ctx context.Context) error {
 	defer close(l.closeCh)
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			loopCtx, loopCancel := context.WithCancel(ctx)
-			if err := l.loop(loopCtx); err != nil {
-				loopCancel()
-				return err
-			}
-			loopCancel()
+		if err := l.loop(ctx); err != nil {
+			return err
 		}
 	}
 }
@@ -107,8 +99,6 @@ func (l *Leadership) Run(ctx context.Context) error {
 // their leadership. After election, if any changes are observed, this loop
 // will exit, to be restarted.
 func (l *Leadership) loop(ctx context.Context) error {
-	l.log.Info("Attempting to acquire partition leadership")
-
 	lease, err := l.client.Grant(ctx, 20)
 	if err != nil {
 		return err
@@ -204,19 +194,19 @@ func (l *Leadership) loop(ctx context.Context) error {
 				case <-ch:
 				}
 
-				if ctx.Err() != nil {
-					break
-				}
-
 				ok, err := l.checkLeadershipKeys(ctx)
 				if err != nil {
-					return err
+					l.log.Error(err, "Dropping leadership due to error")
+					break
 				}
 
 				if !ok {
 					break
 				}
 			}
+
+			l.log.Info("Leadership key inconsistency detected, dropping leadership...")
+
 			l.lock.Lock()
 			defer l.lock.Unlock()
 
