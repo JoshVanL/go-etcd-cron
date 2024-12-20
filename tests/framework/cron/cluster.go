@@ -7,21 +7,27 @@ package cron
 
 import (
 	"testing"
+	"time"
 
 	"github.com/diagridio/go-etcd-cron/tests/framework/etcd"
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type Cluster struct {
 	*Cron
+	ch    chan []*anypb.Any
 	Crons [3]*Cron
 }
 
 func TripplePartition(t *testing.T) *Cluster {
 	t.Helper()
+
 	client := etcd.EmbeddedBareClient(t)
-	cr1 := newCron(t, client, 3, 0)
-	cr2 := newCron(t, client, 3, 1)
-	cr3 := newCron(t, client, 3, 2)
+
+	cr1 := newCron(t, client, "0")
+	cr2 := newCron(t, client, "1")
+	cr3 := newCron(t, client, "2")
 	return &Cluster{
 		Cron:  cr1,
 		Crons: [3]*Cron{cr1, cr2, cr3},
@@ -34,6 +40,13 @@ func TripplePartitionRun(t *testing.T) *Cluster {
 	for _, cr := range crs.Crons {
 		cr.run(t)
 	}
+
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		for _, cr := range crs.Crons {
+			assert.True(c, cr.IsElected())
+		}
+	}, time.Second*5, time.Millisecond)
+
 	return crs
 }
 
